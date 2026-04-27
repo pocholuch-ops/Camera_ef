@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAM FX</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0a;
+    font-family: 'Space Mono', monospace;
+    color: #fff;
+    height: 100dvh; /* dynamic viewport height — funciona bien en móvil */
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  #header {
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #222;
+    flex-shrink: 0;
+    z-index: 10;
+  }
+
+  #header h1 {
+    font-size: 13px;
+    letter-spacing: 4px;
+    color: #ff2d78;
+    text-transform: uppercase;
+  }
+
+  #status {
+    font-size: 10px;
+    color: #444;
+    letter-spacing: 2px;
+  }
+
+  #status.live { color: #0f0; animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: 0.3; } }
+
+  #canvas-wrap {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+
+  #video { display: none; }
+
+  /* Controls */
+  #controls {
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px;
+    border-top: 1px solid #222;
+    flex-shrink: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .btn {
+    flex-shrink: 0;
+    padding: 10px 16px;
+    min-height: 44px; /* mínimo recomendado por Apple para tap targets */
+    background: transparent;
+    border: 1px solid #333;
+    color: #666;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.15s;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  .btn:hover { border-color: #ff2d78; color: #ff2d78; }
+  .btn.active { background: #ff2d78; border-color: #ff2d78; color: #fff; }
+
+  /* Sliders panel */
+  #sliders {
+    display: flex;
+    gap: 12px;
+    padding: 8px 12px;
+    border-top: 1px solid #111;
+    flex-shrink: 0;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .slider-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .slider-group label {
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: #555;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  input[type=range] {
+    width: 70px;
+    accent-color: #ff2d78;
+    cursor: pointer;
+  }
+
+  .val {
+    font-size: 9px;
+    color: #888;
+    min-width: 20px;
+  }
+
+  #start-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #0a0a0a;
+    z-index: 20;
+    gap: 16px;
+  }
+
+  #start-overlay p {
+    font-size: 11px;
+    color: #444;
+    letter-spacing: 3px;
+  }
+
+  #start-btn {
+    padding: 14px 32px;
+    background: #ff2d78;
+    border: none;
+    color: #fff;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 3px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: opacity 0.2s;
+  }
+  #start-btn:hover { opacity: 0.8; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>CAM · FX</h1>
+  <div style="display:flex;gap:10px;align-items:center">
+    <button id="flip-btn" class="btn" style="padding:6px 10px;min-height:36px;display:none">⇄ FLIP</button>
+    <span id="status">OFFLINE</span>
+  </div>
+</div>
+
+<div id="canvas-wrap">
+  <canvas id="c"></canvas>
+  <video id="video" autoplay playsinline muted></video>
+  <div id="start-overlay">
+    <p>CAMERA EFFECTS</p>
+    <button id="start-btn">ACTIVAR CÁMARA</button>
+  </div>
+</div>
+
+<div id="controls">
+  <button class="btn active" data-fx="dots">● DOT MATRIX</button>
+  <button class="btn" data-fx="nodes">◈ NODE GRAPH</button>
+  <button class="btn" data-fx="glitch">▓ GLITCH</button>
+  <button class="btn" data-fx="ascii">▤ ASCII</button>
+  <button class="btn" data-fx="normal">◻ RAW</button>
+</div>
+
+<div id="sliders">
+  <div class="slider-group" id="sg-size">
+    <label>Size</label>
+    <input type="range" id="sl-size" min="4" max="24" value="8">
+    <span class="val" id="v-size">8</span>
+  </div>
+  <div class="slider-group" id="sg-nodes">
+    <label>Nodes</label>
+    <input type="range" id="sl-nodes" min="10" max="80" value="35">
+    <span class="val" id="v-nodes">35</span>
+  </div>
+  <div class="slider-group">
+    <label>Brightness</label>
+    <input type="range" id="sl-bright" min="0.5" max="2" step="0.05" value="1">
+    <span class="val" id="v-bright">1</span>
+  </div>
+</div>
+
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const overlay = document.getElementById('start-overlay');
+const statusEl = document.getElementById('status');
+const buttons = document.querySelectorAll('.btn[data-fx]');
+
+let currentFx = 'dots';
+let running = false;
+let offscreen, octx;
+
+// Node graph state
+const nodes = [];
+let nodeCount = 35;
+
+// Sliders
+const slSize = document.getElementById('sl-size');
+const slNodes = document.getElementById('sl-nodes');
+const slBright = document.getElementById('sl-bright');
+const vSize = document.getElementById('v-size');
+const vNodes = document.getElementById('v-nodes');
+const vBright = document.getElementById('v-bright');
+
+slSize.addEventListener('input', () => { vSize.textContent = slSize.value; });
+slNodes.addEventListener('input', () => { vNodes.textContent = slNodes.value; nodeCount = +slNodes.value; initNodes(); });
+slBright.addEventListener('input', () => { vBright.textContent = slBright.value; });
+
+// Slider visibility per effect
+function updateSliders() {
+  document.getElementById('sg-size').style.display = ['dots','ascii'].includes(currentFx) ? 'flex' : 'none';
+  document.getElementById('sg-nodes').style.display = currentFx === 'nodes' ? 'flex' : 'none';
+}
+
+// Buttons
+buttons.forEach(b => {
+  b.addEventListener('click', () => {
+    buttons.forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    currentFx = b.dataset.fx;
+    updateSliders();
+    if (currentFx === 'nodes') initNodes();
+  });
+});
+
+updateSliders();
+
+let currentFacing = 'user'; // 'user' = frontal, 'environment' = trasera
+let currentStream = null;
+
+async function startCamera(facing) {
+  if (currentStream) {
+    currentStream.getTracks().forEach(t => t.stop());
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: facing } },
+      audio: false
+    });
+    video.srcObject = stream;
+    currentStream = stream;
+    // iOS Safari necesita este play() explícito después de asignar srcObject
+    await video.play();
+    currentFacing = facing;
+  } catch(e) {
+    alert('Error de cámara: ' + e.message);
+  }
+}
+
+document.getElementById('start-btn').addEventListener('click', async () => {
+  await startCamera('user');
+  overlay.style.display = 'none';
+  statusEl.textContent = 'LIVE';
+  statusEl.className = 'live';
+  document.getElementById('flip-btn').style.display = 'flex';
+  running = true;
+  loop();
+});
+
+document.getElementById('flip-btn').addEventListener('click', () => {
+  startCamera(currentFacing === 'user' ? 'environment' : 'user');
+});
+
+function resize() {
+  const wrap = document.getElementById('canvas-wrap');
+  canvas.width = wrap.clientWidth;
+  canvas.height = wrap.clientHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── Node graph ──────────────────────────────────────────────
+function initNodes() {
+  nodes.length = 0;
+  for (let i = 0; i < nodeCount; i++) {
+    nodes.push({
+      x: Math.random(),
+      y: Math.random(),
+      vx: (Math.random() - 0.5) * 0.0008,
+      vy: (Math.random() - 0.5) * 0.0008,
+      r: Math.random() * 3 + 2,
+      color: Math.random() < 0.3 ? '#ff2d78' : Math.random() < 0.5 ? '#00ff88' : '#fff'
+    });
+  }
+}
+initNodes();
+
+function updateNodes() {
+  for (const n of nodes) {
+    n.x += n.vx; n.y += n.vy;
+    if (n.x < 0 || n.x > 1) n.vx *= -1;
+    if (n.y < 0 || n.y > 1) n.vy *= -1;
+  }
+}
+
+// ─── ASCII chars ──────────────────────────────────────────────
+const ASCII = ' .\'`^",:;Il!i><~+_-?][}{1)(|/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$';
+
+// ─── GLITCH state ─────────────────────────────────────────────
+let glitchTimer = 0;
+let glitchLines = [];
+function updateGlitch() {
+  glitchTimer--;
+  if (glitchTimer <= 0) {
+    glitchTimer = Math.floor(Math.random() * 12) + 3;
+    glitchLines = [];
+    const count = Math.floor(Math.random() * 8) + 2;
+    for (let i = 0; i < count; i++) {
+      glitchLines.push({
+        y: Math.random(),
+        h: Math.random() * 0.08 + 0.005,
+        dx: (Math.random() - 0.5) * 60,
+        c: Math.random() < 0.4
+      });
+    }
+  }
+}
+
+// ─── Main loop ────────────────────────────────────────────────
+function loop() {
+  if (!running) return;
+  requestAnimationFrame(loop);
+
+  const W = canvas.width, H = canvas.height;
+  if (video.readyState < 2) return;
+
+  // Draw video to offscreen
+  if (!offscreen || offscreen.width !== W || offscreen.height !== H) {
+    offscreen = new OffscreenCanvas(W, H);
+    octx = offscreen.getContext('2d');
+  }
+  octx.save();
+  octx.translate(W, 0); octx.scale(-1, 1);
+  octx.filter = `brightness(${slBright.value})`;
+  octx.drawImage(video, 0, 0, W, H);
+  octx.restore();
+
+  const img = octx.getImageData(0, 0, W, H);
+  const d = img.data;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(0, 0, W, H);
+
+  if (currentFx === 'normal') {
+    ctx.putImageData(img, 0, 0);
+
+  } else if (currentFx === 'dots') {
+    const sz = +slSize.value;
+    const cols = Math.floor(W / sz);
+    const rows = Math.floor(H / sz);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const px = Math.floor(c * sz + sz / 2);
+        const py = Math.floor(r * sz + sz / 2);
+        const idx = (py * W + px) * 4;
+        const R = d[idx], G = d[idx+1], B = d[idx+2];
+        const bright = (R + G + B) / 765;
+        const radius = (sz / 2 - 1) * bright;
+        if (radius < 0.5) continue;
+        ctx.beginPath();
+        ctx.arc(c * sz + sz / 2, r * sz + sz / 2, radius, 0, Math.PI * 2);
+        ctx.fillStyle = `rgb(${R},${G},${B})`;
+        ctx.fill();
+      }
+    }
+
+  } else if (currentFx === 'nodes') {
+    // Draw camera dimmed
+    ctx.globalAlpha = 0.35;
+    ctx.putImageData(img, 0, 0);
+    ctx.globalAlpha = 1;
+
+    updateNodes();
+    const W2 = W, H2 = H;
+    const dist = 0.22;
+
+    // Lines
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const dx = nodes[i].x - nodes[j].x;
+        const dy = nodes[i].y - nodes[j].y;
+        const d2 = Math.sqrt(dx*dx + dy*dy);
+        if (d2 < dist) {
+          const alpha = (1 - d2 / dist) * 0.6;
+          ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+          ctx.beginPath();
+          ctx.moveTo(nodes[i].x * W2, nodes[i].y * H2);
+          ctx.lineTo(nodes[j].x * W2, nodes[j].y * H2);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // Node boxes + dots
+    for (const n of nodes) {
+      const nx = n.x * W2, ny = n.y * H2;
+      // Box
+      const bw = 28, bh = 16;
+      ctx.strokeStyle = n.color === '#ff2d78' ? 'rgba(255,45,120,0.7)' : 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(nx - bw/2, ny - bh/2, bw, bh);
+      // Center dot
+      ctx.beginPath();
+      ctx.arc(nx, ny, n.r * 0.6, 0, Math.PI * 2);
+      ctx.fillStyle = n.color;
+      ctx.fill();
+      // Input/output nubs
+      ctx.beginPath(); ctx.arc(nx - bw/2, ny, 2.5, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(nx + bw/2, ny, 2.5, 0, Math.PI*2);
+      ctx.fillStyle = n.color === '#ff2d78' ? '#ff2d78' : 'rgba(0,255,136,0.8)'; ctx.fill();
+    }
+
+  } else if (currentFx === 'glitch') {
+    ctx.putImageData(img, 0, 0);
+    updateGlitch();
+    for (const g of glitchLines) {
+      const sy = Math.floor(g.y * H);
+      const sh = Math.floor(g.h * H) + 1;
+      if (sy + sh > H) continue;
+      const slice = ctx.getImageData(0, sy, W, sh);
+      if (g.c) {
+        // Color channel shift
+        for (let i = 0; i < slice.data.length; i += 4) {
+          slice.data[i] = Math.min(255, slice.data[i] + 80);
+          slice.data[i+2] = Math.max(0, slice.data[i+2] - 80);
+        }
+      }
+      ctx.putImageData(slice, g.dx, sy);
+      // RGB ghost
+      ctx.globalAlpha = 0.3;
+      ctx.globalCompositeOperation = 'screen';
+      ctx.putImageData(slice, g.dx + 8, sy);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+    }
+    // Scanlines
+    ctx.globalAlpha = 0.06;
+    ctx.fillStyle = '#000';
+    for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
+    ctx.globalAlpha = 1;
+
+  } else if (currentFx === 'ascii') {
+    const sz = +slSize.value;
+    const cols = Math.floor(W / (sz * 0.6));
+    const rows = Math.floor(H / sz);
+    const cw = W / cols, ch = H / rows;
+    ctx.font = `${sz * 0.85}px monospace`;
+    ctx.textBaseline = 'top';
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const px = Math.floor(c * cw + cw / 2);
+        const py = Math.floor(r * ch + ch / 2);
+        const idx = (py * W + px) * 4;
+        const R = d[idx], G = d[idx+1], B = d[idx+2];
+        const lum = (R * 0.299 + G * 0.587 + B * 0.114) / 255;
+        const charIdx = Math.floor(lum * (ASCII.length - 1));
+        ctx.fillStyle = `rgb(${R},${G},${B})`;
+        ctx.fillText(ASCII[charIdx], c * cw, r * ch);
+      }
+    }
+  }
+}
+</script>
+</body>
+</html>
